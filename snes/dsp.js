@@ -57,6 +57,8 @@ function Dsp(apu) {
   // attack rate, decay rate, sustain rate, release rate, gain rate
   this.rateNums = new Int16Array(5*8);
 
+  this.channelPlaying = [1, 1, 1, 1, 1, 1, 1, 1];
+
   this.reset = function() {
     clearArray(this.ram);
 
@@ -232,6 +234,9 @@ function Dsp(apu) {
   }
 
   this.cycleChannel = function(ch) {
+    if (this.channelPlaying[ch] === 0) {
+      return;
+    }
     // get the next sample
     let pitch = this.pitch[ch];
     if(this.pitchMod[ch]) {

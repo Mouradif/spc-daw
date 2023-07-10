@@ -1,88 +1,48 @@
 
-let c = el("output");
+loadList();
+const player = new SpcPlayer();
+
+const c = el("output");
 c.width = 512;
 c.height = 480;
 let ctx = c.getContext("2d");
-let imgData = ctx.getImageData(0, 0, 512, 480);
+let prevNote = new Array(8).fill(null);
+drawVisual(true);
 
 let loopId = 0;
 let loaded = false;
 let paused = false;
 let pausedInBg = false;
 
-let romArr = new Uint8Array([]);
+let audioHandler = null;
 
-let snes = new Snes();
-
-let audioHandler = new AudioHandler();
-
-let logging = false;
-let noPpu = false;
-
-zip.workerScriptsPath = "lib/";
-zip.useWebWorkers = false;
-
-let controlsP1 = {
-  z: 0, // B
-  a: 1, // Y
-  shift: 2, // select
-  enter: 3, // start
-  arrowup: 4, // up
-  arrowdown: 5, // down
-  arrowleft: 6, // left
-  arrowright: 7, // right
-  x: 8, // A
-  s: 9, // X
-  d: 10, // L
-  c: 11 // R
+document.body.ondragover = function(e) {
+  e.preventDefault();
 }
 
-el("rom").onchange = function(e) {
-  //audioHandler.resume();
+document.body.ondrop = function (e) {
+  e.preventDefault();
   let freader = new FileReader();
   freader.onload = function() {
     let buf = freader.result;
-    if(e.target.files[0].name.slice(-4) === ".zip") {
-      // use zip.js to read the zip
-      let blob = new Blob([buf]);
-      zip.createReader(new zip.BlobReader(blob), function(reader) {
-        reader.getEntries(function(entries) {
-          if(entries.length) {
-            let found = false;
-            for(let i = 0; i < entries.length; i++) {
-              let name = entries[i].filename;
-              if(name.slice(-4) !== ".smc" && name.slice(-4) !== ".sfc") {
-                continue;
-              }
-              found = true;
-              log("Loaded \"" + name + "\" from zip");
-              entries[i].getData(new zip.BlobWriter(), function(blob) {
-                let breader = new FileReader();
-                breader.onload = function() {
-                  let rbuf = breader.result;
-                  romArr = new Uint8Array(rbuf);
-                  loadRom(romArr);
-                  reader.close(function() {});
-                }
-                breader.readAsArrayBuffer(blob);
-              }, function(curr, total) {});
-              break;
-            }
-            if(!found) {
-              log("No .smc or .sfc file found in zip");
-            }
-          } else {
-            log("Zip file was empty");
-          }
-        });
-      }, function(err) {
-        log("Failed to read zip: " + err);
-      });
-    } else {
-      // load rom normally
-      romArr = new Uint8Array(buf);
-      loadRom(romArr);
-    }
+    let arr = new Uint8Array(buf);
+    loadSpc(arr);
+  }
+  freader.readAsArrayBuffer(e.dataTransfer.files[0]);
+}
+
+document.addEventListener('click', () => {
+  if (audioHandler === null) {
+    audioHandler = new AudioHandler();
+  }
+})
+
+el("rom").onchange = function(e) {
+  let freader = new FileReader();
+  freader.onload = function() {
+    let buf = freader.result;
+    let arr = new Uint8Array(buf);
+    loadSpc(arr);
   }
   freader.readAsArrayBuffer(e.target.files[0]);
 }
@@ -101,24 +61,38 @@ el("pause").onclick = function() {
   }
 }
 
-el("reset").onclick = function(e) {
-  snes.reset(false);
-}
-
-el("hardreset").onclick = function(e) {
-  snes.reset(true);
-}
-
-el("runframe").onclick = function(e) {
-  if(loaded) {
-    runFrame();
+el('channel-selector').onclick = function (e) {
+  if (e.target === this) return;
+  if (e.target.dataset.action) {
+    const action = e.target.dataset.action;
+    if (action === 'mute') {
+      clearArray(player.apu.dsp.channelPlaying);
+      for (let i = 0; i < 8; i++) {
+        this.children[i].classList.add('mute');
+      }
+      return;
+    }
+    player.apu.dsp.channelPlaying.fill(1);
+    for (let i = 0; i < 8; i++) {
+      this.children[i].classList.remove('mute');
+    }
+    return;
   }
+
+  const ch = Array.from(this.children).indexOf(e.target);
+  const isOn = player.apu.dsp.channelPlaying[ch] > 0;
+  if (isOn) {
+    player.apu.dsp.channelPlaying[ch] = 0;
+    e.target.classList.add('mute');
+    return;
+  }
+  player.apu.dsp.channelPlaying[ch] = 1;
+  e.target.classList.remove('mute');
 }
 
-el("ishirom").onchange = function(e) {
+el("reset").onclick = function() {
   if(loaded) {
-    // reload when switching from LoROM to HiROM
-    loadRom(romArr);
+    player.reset();
   }
 }
 
@@ -137,10 +111,11 @@ document.onvisibilitychange = function(e) {
   }
 }
 
-function loadRom(rom) {
-  let hiRom = el("ishirom").checked;
-  if(snes.loadRom(rom, hiRom)) {
-    snes.reset(true);
+async function loadSpc(spc) {
+  if (!audioHandler) {
+    audioHandler = new AudioHandler();
+  }
+  if(player.loadSpc(spc)) {
     if(!loaded && !paused) {
       loopId = requestAnimationFrame(update);
       audioHandler.start();
@@ -150,33 +125,10 @@ function loadRom(rom) {
 }
 
 function runFrame() {
-
-  if(logging) {
-    do {
-      snes.cycle();
-      // TODO: some way of tracing the spc again
-
-      // if((snes.xPos % 20) === 0 && snes.apu.spc.cyclesLeft === 0) {
-      //   log(getSpcTrace(
-      //     snes.apu.spc, snes.apu.cycles
-      //   ));
-      // }
-    } while(
-      snes.cpuCyclesLeft > 0 ||
-      (snes.xPos >= 536 && snes.xPos < 576) ||
-      snes.hdmaTimer > 0
-    );
-    log(getTrace(
-      snes.cpu, snes.frames * 1364 * 262 + snes.yPos * 1364 + snes.xPos
-    ));
-  } else {
-    snes.runFrame(noPpu);
-  }
-
-  snes.setPixels(imgData.data);
-  ctx.putImageData(imgData, 0, 0);
-  snes.setSamples(audioHandler.sampleBufferL, audioHandler.sampleBufferR, audioHandler.samplesPerFrame);
+  player.runFrame();
+  player.setSamples(audioHandler.sampleBufferL, audioHandler.sampleBufferR, audioHandler.samplesPerFrame);
   audioHandler.nextBuffer();
+  drawVisual();
 }
 
 function update() {
@@ -184,47 +136,153 @@ function update() {
   loopId = requestAnimationFrame(update);
 }
 
+function drawVisual(first = false) {
+  if (first) {
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, c.width, c.height);
+  }
+  // draw visualisation per channel
+  for(let i = 0; i < 8; i++) {
+    // Gain Background
+    ctx.fillStyle = "#3f3f1f";
+    ctx.fillRect(10 + i * 57, 480 - 300, 10, 300);
+
+    // Gain
+    ctx.fillStyle = "#ffff7f";
+    const scale = player.apu.dsp.gain[i] * 300 / 0x7ff;
+    ctx.fillRect(10 + i * 57, 480 - scale, 10, scale);
+
+    // Piano Roll
+
+    // const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const blackKeys = [0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0];
+
+    if (first) {
+      // White keys
+      let keyIndex = 0;
+      for (let j = 0; j < 82; j++) {
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(10 + i * 57 + 30, 480 - (keyIndex * 10) - 10, 20, 10);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(10 + i * 57 + 31, 480 - (keyIndex * 10) - 9, 18, 8);
+        if (blackKeys[j % 12] === 0) {
+          keyIndex++;
+        }
+      }
+
+      // Black keys
+      keyIndex = 0;
+      for (let j = 0; j < 82; j++) {
+        if (blackKeys[j % 12] === 1) {
+          ctx.fillStyle = "#000000";
+          ctx.fillRect(10 + i * 57 + 30, 480 - (keyIndex * 10) - 3, 10, 6);
+        }
+        if (blackKeys[j % 12] === 0) {
+          keyIndex++;
+        }
+      }
+
+    }
+    let pitch = player.apu.dsp.pitch[i];
+    if(player.apu.dsp.pitchMod[i]) {
+      let factor = (this.sampleOut[i - 1] >> 4) + 0x400;
+      pitch = (pitch * factor) >> 10;
+      pitch = Math.min(pitch, 0x3fff);
+    }
+    const note = Math.round(12 * Math.log2( pitch/ 220 ) + 9);
+
+    if (prevNote[i] !== null) {
+      if (prevNote[i] === note) {
+        (() => null)();
+      } else if (blackKeys[prevNote[i] % 12]) {
+        const octave = Math.floor(prevNote[i] / 12) * 70;
+        const keyIndex = ((index) => {
+          let key = 0;
+          for (let i = 0; i < index; i++) {
+            if (!blackKeys[i]) {
+              key++;
+            }
+          }
+          return key;
+        })(prevNote[i] % 12);
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(10 + i * 57 + 30, 480 - octave - (keyIndex * 10) - 3, 10, 10);
+      } else {
+        const octave = Math.floor(prevNote[i] / 12) * 70;
+        const keyIndex = ((index) => {
+          let key = 0;
+          for (let i = 0; i < index; i++) {
+            if (!blackKeys[i]) {
+              key++;
+            }
+          }
+          return key;
+        })(prevNote[i] % 12);
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(10 + i * 57 + 30, 480 - octave - (keyIndex * 10) - 10, 20, 10);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(10 + i * 57 + 31, 480 - octave - (keyIndex * 10) - 9, 18, 8);
+        const keyBefore = prevNote[i] - 1;
+        const keyAfter = prevNote[i] + 1;
+        if (blackKeys[keyBefore % 12]) {
+          const octave = Math.floor(keyBefore / 12) * 70;
+          const keyIndex = ((index) => {
+            let key = 0;
+            for (let i = 0; i < index; i++) {
+              if (!blackKeys[i]) {
+                key++;
+              }
+            }
+            return key;
+          })(keyBefore % 12);
+          ctx.fillStyle = "#000000";
+          ctx.fillRect(10 + i * 57 + 30, 480 - octave - (keyIndex * 10) - 13, 10, 6);
+        }
+        if (blackKeys[keyAfter % 12]) {
+          const octave = Math.floor(keyAfter / 12) * 70;
+          const keyIndex = ((index) => {
+            let key = 0;
+            for (let i = 0; i < index; i++) {
+              if (!blackKeys[i]) {
+                key++;
+              }
+            }
+            return key;
+          })(keyAfter % 12);
+          ctx.fillStyle = "#000000";
+          ctx.fillRect(10 + i * 57 + 30, 480 - octave - (keyIndex * 10) - 3, 10, 6);
+        }
+      }
+    }
+    prevNote[i] = note;
+    // Played key
+    ctx.fillStyle = "#7f7fff";
+    // const letter = notes[note % 12];
+    const octave = Math.floor(note / 12) * 70;
+    const keyIndex = ((index) => {
+      let key = 0;
+      for (let i = 0; i < index; i++) {
+        if (!blackKeys[i]) {
+          key++;
+        }
+      }
+      return key;
+    })(note % 12);
+    const width = blackKeys[note % 12] ? 10 : 20;
+    const yOffset = blackKeys[note % 12] ? 3 : 10;
+    const height = blackKeys[note % 12] ? 6 : 10;
+    ctx.fillRect(10 + i * 57 + 30, 480 - octave - (keyIndex * 10) - yOffset, width, height);
+
+  }
+}
+
 window.onkeydown = function(e) {
   switch(e.key) {
     case "l":
     case "L": {
-      logging = !logging;
-      break;
-    }
-    case "p":
-    case "P": {
-      noPpu = !noPpu;
       break;
     }
   }
-  if(controlsP1[e.key.toLowerCase()] !== undefined) {
-    e.preventDefault();
-    snes.setPad1ButtonPressed(controlsP1[e.key.toLowerCase()]);
-  }
-}
-
-window.onkeyup = function(e) {
-  if(controlsP1[e.key.toLowerCase()] !== undefined) {
-    e.preventDefault();
-    snes.setPad1ButtonReleased(controlsP1[e.key.toLowerCase()]);
-  }
-}
-
-function log(text) {
-  el("log").innerHTML += text + "\n";
-  el("log").scrollTop = el("log").scrollHeight;
-}
-
-function getByteRep(val) {
-  return ("0" + val.toString(16)).slice(-2).toUpperCase();
-}
-
-function getWordRep(val) {
-  return ("000" + val.toString(16)).slice(-4).toUpperCase();
-}
-
-function getLongRep(val) {
-  return ("00000" + val.toString(16)).slice(-6).toUpperCase();
 }
 
 function clearArray(arr) {

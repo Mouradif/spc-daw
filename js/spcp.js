@@ -47,7 +47,6 @@ function SpcPlayer() {
   this.parseSpc = function(file) {
     this.apu.reset();
     if(file.length < 0x10200) {
-      log("Invalid length");
       return false;
     }
     // identifier
@@ -56,7 +55,6 @@ function SpcPlayer() {
       identifier += String.fromCharCode(file[i]);
     }
     if(identifier !== "SNES-SPC700 Sound File Data v0.30") {
-      log("Unknown SPC header: " + identifier);
       return false;
     }
 
