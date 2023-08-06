@@ -6,7 +6,6 @@ const c = el("output");
 c.width = 512;
 c.height = 480;
 let ctx = c.getContext("2d");
-let prevNote = new Array(8).fill(null);
 drawVisual(true);
 
 let loopId = 0;
@@ -136,11 +135,9 @@ function update() {
   loopId = requestAnimationFrame(update);
 }
 
-function drawVisual(first = false) {
-  if (first) {
-    ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, c.width, c.height);
-  }
+function drawVisual() {
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, c.width, c.height);
   // draw visualisation per channel
   for(let i = 0; i < 8; i++) {
     // Gain Background
@@ -157,31 +154,28 @@ function drawVisual(first = false) {
     // const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
     const blackKeys = [0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0];
 
-    if (first) {
-      // White keys
-      let keyIndex = 0;
-      for (let j = 0; j < 82; j++) {
+    // White keys
+    let keyIndex = 0;
+    for (let j = 0; j < 82; j++) {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(10 + i * 57 + 30, 480 - (keyIndex * 10) - 10, 20, 10);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(10 + i * 57 + 31, 480 - (keyIndex * 10) - 9, 18, 8);
+      if (blackKeys[j % 12] === 0) {
+        keyIndex++;
+      }
+    }
+
+    // Black keys
+    keyIndex = 0;
+    for (let j = 0; j < 82; j++) {
+      if (blackKeys[j % 12] === 1) {
         ctx.fillStyle = "#000000";
-        ctx.fillRect(10 + i * 57 + 30, 480 - (keyIndex * 10) - 10, 20, 10);
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(10 + i * 57 + 31, 480 - (keyIndex * 10) - 9, 18, 8);
-        if (blackKeys[j % 12] === 0) {
-          keyIndex++;
-        }
+        ctx.fillRect(10 + i * 57 + 30, 480 - (keyIndex * 10) - 3, 10, 6);
       }
-
-      // Black keys
-      keyIndex = 0;
-      for (let j = 0; j < 82; j++) {
-        if (blackKeys[j % 12] === 1) {
-          ctx.fillStyle = "#000000";
-          ctx.fillRect(10 + i * 57 + 30, 480 - (keyIndex * 10) - 3, 10, 6);
-        }
-        if (blackKeys[j % 12] === 0) {
-          keyIndex++;
-        }
+      if (blackKeys[j % 12] === 0) {
+        keyIndex++;
       }
-
     }
     let pitch = player.apu.dsp.pitch[i];
     if(player.apu.dsp.pitchMod[i]) {
@@ -191,75 +185,11 @@ function drawVisual(first = false) {
     }
     const note = Math.round(12 * Math.log2( pitch/ 220 ) + 9);
 
-    if (prevNote[i] !== null) {
-      if (prevNote[i] === note) {
-        (() => null)();
-      } else if (blackKeys[prevNote[i] % 12]) {
-        const octave = Math.floor(prevNote[i] / 12) * 70;
-        const keyIndex = ((index) => {
-          let key = 0;
-          for (let i = 0; i < index; i++) {
-            if (!blackKeys[i]) {
-              key++;
-            }
-          }
-          return key;
-        })(prevNote[i] % 12);
-        ctx.fillStyle = "#000000";
-        ctx.fillRect(10 + i * 57 + 30, 480 - octave - (keyIndex * 10) - 3, 10, 10);
-      } else {
-        const octave = Math.floor(prevNote[i] / 12) * 70;
-        const keyIndex = ((index) => {
-          let key = 0;
-          for (let i = 0; i < index; i++) {
-            if (!blackKeys[i]) {
-              key++;
-            }
-          }
-          return key;
-        })(prevNote[i] % 12);
-        ctx.fillStyle = "#000000";
-        ctx.fillRect(10 + i * 57 + 30, 480 - octave - (keyIndex * 10) - 10, 20, 10);
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(10 + i * 57 + 31, 480 - octave - (keyIndex * 10) - 9, 18, 8);
-        const keyBefore = prevNote[i] - 1;
-        const keyAfter = prevNote[i] + 1;
-        if (blackKeys[keyBefore % 12]) {
-          const octave = Math.floor(keyBefore / 12) * 70;
-          const keyIndex = ((index) => {
-            let key = 0;
-            for (let i = 0; i < index; i++) {
-              if (!blackKeys[i]) {
-                key++;
-              }
-            }
-            return key;
-          })(keyBefore % 12);
-          ctx.fillStyle = "#000000";
-          ctx.fillRect(10 + i * 57 + 30, 480 - octave - (keyIndex * 10) - 13, 10, 6);
-        }
-        if (blackKeys[keyAfter % 12]) {
-          const octave = Math.floor(keyAfter / 12) * 70;
-          const keyIndex = ((index) => {
-            let key = 0;
-            for (let i = 0; i < index; i++) {
-              if (!blackKeys[i]) {
-                key++;
-              }
-            }
-            return key;
-          })(keyAfter % 12);
-          ctx.fillStyle = "#000000";
-          ctx.fillRect(10 + i * 57 + 30, 480 - octave - (keyIndex * 10) - 3, 10, 6);
-        }
-      }
-    }
-    prevNote[i] = note;
     // Played key
     ctx.fillStyle = "#7f7fff";
     // const letter = notes[note % 12];
     const octave = Math.floor(note / 12) * 70;
-    const keyIndex = ((index) => {
+    keyIndex = ((index) => {
       let key = 0;
       for (let i = 0; i < index; i++) {
         if (!blackKeys[i]) {
@@ -272,7 +202,6 @@ function drawVisual(first = false) {
     const yOffset = blackKeys[note % 12] ? 3 : 10;
     const height = blackKeys[note % 12] ? 6 : 10;
     ctx.fillRect(10 + i * 57 + 30, 480 - octave - (keyIndex * 10) - yOffset, width, height);
-
   }
 }
 
