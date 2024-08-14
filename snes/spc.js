@@ -6,33 +6,50 @@ function Spc(mem) {
   const X = 1;
   const Y = 2;
   const SP = 3;
-  const PC = 0;
 
-  const IMP = 0;
-  const REL = 1;
-  const DP = 2;
-  const DPR = 3;
-  const ABS = 4;
-  const IND = 5;
-  const IDX = 6;
-  const IMM = 7;
-  const DPX = 8;
-  const ABX = 9;
-  const ABY = 10;
-  const IDY = 11;
-  const DD = 12;
-  const II = 13;
-  const DI = 14;
-  const DPY = 15;
-  const ABB = 16;
-  const DXR = 17;
-  const IAX = 18;
-  const IPI = 19;
+  const IMP = 0;  // Implied: No operand, operates directly on the accumulator or registers.
+  const REL = 1;  // Relative: Used for branch instructions, specifies an offset relative to the current PC.
+  const DP = 2;   // Direct Page: Operands are in the zero page (first 256 bytes of memory).
+  const DPR = 3;  // Direct Page Relative: Direct page addressing combined with a relative offset.
+  const ABS = 4;  // Absolute: Full 16-bit address is specified as the operand.
+  const IND = 5;  // Indirect: Address is stored in zero page, the instruction points to this address.
+  const IDX = 6;  // Indexed Indirect (X): The address is the sum of an immediate value and the X register, pointing to a location in memory.
+  const IMM = 7;  // Immediate: Operand is a constant value embedded in the instruction.
+  const DPX = 8;  // Direct Page Indexed with X: Direct page addressing, offset by the X register.
+  const ABX = 9;  // Absolute Indexed with X: Full 16-bit address offset by the X register.
+  const ABY = 10; // Absolute Indexed with Y: Full 16-bit address offset by the Y register.
+  const IDY = 11; // Indirect Indexed with Y: Pointer to an address in zero page, then offset by the Y register.
+  const DD = 12;  // Direct Page to Direct Page: Transfers data between two direct page addresses.
+  const II = 13;  // Indirect to Indirect: Transfers data between two memory locations, both addressed indirectly.
+  const DI = 14;  // Immediate to Direct Page: Combines immediate value with direct page addressing.
+  const DPY = 15; // Direct Page Indexed with Y: Direct page addressing, offset by the Y register.
+  const ABB = 16; // Absolute with Bit Index: Absolute address combined with a bit index, used for bit manipulation.
+  const DXR = 17; // Direct Page Indexed with X and Relative: Combines direct page with X indexing and relative offset.
+  const IAX = 18; // Indirect Absolute Indexed: The effective address is calculated by adding the X register to the contents of a pointer in memory.
+  const IPI = 19; // Indirect Post-Increment: Indirect addressing with automatic increment of the pointer after access.
 
+  /**
+   * This memory object is expected to have methods for reading and writing data.
+   * The memory object represents the full memory space that the SPC700 processor can access,
+   * including program code, data, and potentially the DSP (Digital Signal Processor) space.
+   */
   this.mem = mem;
 
+  /**
+   * 8-bit Registers:
+   * r[0] (A): The Accumulator register, used for arithmetic and logic operations.
+   * r[1] (X): The X index register, often used for indexing memory addresses.
+   * r[2] (Y): The Y index register, similar to the X register, but used in different contexts.
+   * r[3] (SP): The Stack Pointer, used to keep track of the top of the stack (used for subroutine calls and interrupts).
+   * @type {Uint8Array}
+   */
   this.r = new Uint8Array(4);
-  this.br = new Uint16Array(1);
+  /**
+   * 16-bit Register:
+   * SPC700's 16-bit Program Counter (PC) register. The PC keeps track of the current position in
+   * the program being executed, i.e., it points to the next instruction to be fetched and executed by the CPU.
+   */
+  this.pc = 0;
 
   this.modes = [
     IMP, IMP, DP , DPR, DP , ABS, IND, IDX, IMM, DD , ABB, DP , ABS, IMP, ABS, IMP,
@@ -75,28 +92,27 @@ function Spc(mem) {
   // function map is at bottom
 
   this.reset = function() {
-
     this.r[A] = 0;
     this.r[X] = 0;
     this.r[Y] = 0;
     this.r[SP] = 0;
 
     if(this.mem.read) {
-      this.br[PC] = this.mem.read(0xfffe) | (this.mem.read(0xffff) << 8);
+      this.pc = this.mem.read(0xfffe) | (this.mem.read(0xffff) << 8);
     } else {
       // if read not defined yet
-      this.br[PC] = 0;
+      this.pc = 0;
     }
 
-    // flags
-    this.n = false;
-    this.v = false;
-    this.p = false;
-    this.b = false;
-    this.h = false;
-    this.i = false;
-    this.z = false;
-    this.c = false;
+    // Flags
+    this.n = false;  // Negative flag
+    this.v = false;  // Overflow flag
+    this.p = false;  // Direct page flag
+    this.b = false;  // Break flag
+    this.h = false;  // Half-carry flag
+    this.i = false;  // Interrupt flag
+    this.z = false;  // Zero flag
+    this.c = false;  // Carry flag
 
     this.cyclesLeft = 7; // a guess
   }
@@ -106,12 +122,12 @@ function Spc(mem) {
     if(this.cyclesLeft === 0) {
       // the spc in the snes does not have interrupts,
       // so no checking is needed
-      let instr = this.mem.read(this.br[PC]++);
+      let instr = this.mem.read(this.pc++);
       let mode = this.modes[instr];
       this.cyclesLeft = this.cycles[instr];
 
       try {
-        let eff = this.getAdr(mode);
+        const eff = this.getAdr(mode);
         this.functions[instr].call(this, eff[0], eff[1], instr);
       } catch(e) {
         console.error("Error with opcode ", instr);
@@ -160,7 +176,7 @@ function Spc(mem) {
 
   this.doBranch = function(check, rel) {
     if(check) {
-      this.br[PC] += rel;
+      this.pc += rel;
       // taken branch: 2 extra cycles
       this.cyclesLeft += 2;
     }
@@ -184,12 +200,12 @@ function Spc(mem) {
       }
       case REL: {
         // relative
-        let rel = this.mem.read(this.br[PC]++);
+        let rel = this.mem.read(this.pc++);
         return [this.getSigned(rel), 0];
       }
       case DP: {
         // direct page (with next byte for 16-bit ops)
-        let adr = this.mem.read(this.br[PC]++);
+        let adr = this.mem.read(this.pc++);
         return [
           adr | (this.p ? 0x100 : 0),
           ((adr + 1) & 0xff) | (this.p ? 0x100 : 0)
@@ -197,14 +213,14 @@ function Spc(mem) {
       }
       case DPR: {
         // direct page, relative
-        let adr = this.mem.read(this.br[PC]++);
-        let rel = this.mem.read(this.br[PC]++);
+        let adr = this.mem.read(this.pc++);
+        let rel = this.mem.read(this.pc++);
         return [adr | (this.p ? 0x100 : 0), this.getSigned(rel)];
       }
       case ABS: {
         // absolute
-        let adr = this.mem.read(this.br[PC]++);
-        adr |= this.mem.read(this.br[PC]++) << 8;
+        let adr = this.mem.read(this.pc++);
+        adr |= this.mem.read(this.pc++) << 8;
         return [adr, 0];
       }
       case IND: {
@@ -213,7 +229,7 @@ function Spc(mem) {
       }
       case IDX: {
         // indexed indirect direct
-        let pointer = this.mem.read(this.br[PC]++);
+        let pointer = this.mem.read(this.pc++);
         let adr = this.mem.read(
           ((pointer + this.r[X]) & 0xff) | (this.p ? 0x100 : 0)
         );
@@ -224,28 +240,28 @@ function Spc(mem) {
       }
       case IMM: {
         // immediate
-        return [this.br[PC]++, 0];
+        return [this.pc++, 0];
       }
       case DPX: {
         // direct page indexed on x
-        let adr = this.mem.read(this.br[PC]++);
+        let adr = this.mem.read(this.pc++);
         return [((adr + this.r[X]) & 0xff) | (this.p ? 0x100 : 0), 0];
       }
       case ABX: {
         // absolute indexed on x
-        let adr = this.mem.read(this.br[PC]++);
-        adr |= this.mem.read(this.br[PC]++) << 8;
+        let adr = this.mem.read(this.pc++);
+        adr |= this.mem.read(this.pc++) << 8;
         return [(adr + this.r[X]) & 0xffff, 0];
       }
       case ABY: {
         // absolute indexed on y
-        let adr = this.mem.read(this.br[PC]++);
-        adr |= this.mem.read(this.br[PC]++) << 8;
+        let adr = this.mem.read(this.pc++);
+        adr |= this.mem.read(this.pc++) << 8;
         return [(adr + this.r[Y]) & 0xffff, 0];
       }
       case IDY: {
         // indirect indexed direct
-        let pointer = this.mem.read(this.br[PC]++);
+        let pointer = this.mem.read(this.pc++);
         let adr = this.mem.read(pointer | (this.p ? 0x100 : 0));
         adr |= this.mem.read(
           ((pointer + 1) & 0xff) | (this.p ? 0x100 : 0)
@@ -254,8 +270,8 @@ function Spc(mem) {
       }
       case DD: {
         // direct page to direct page
-        let adr = this.mem.read(this.br[PC]++);
-        let adr2 = this.mem.read(this.br[PC]++);
+        let adr = this.mem.read(this.pc++);
+        let adr2 = this.mem.read(this.pc++);
         return [adr | (this.p ? 0x100 : 0), adr2 | (this.p ? 0x100 : 0)];
       }
       case II: {
@@ -267,31 +283,31 @@ function Spc(mem) {
       }
       case DI: {
         // immediate to direct page
-        let imm = this.br[PC]++;
-        let adr = this.mem.read(this.br[PC]++);
+        let imm = this.pc++;
+        let adr = this.mem.read(this.pc++);
         return [imm, adr | (this.p ? 0x100 : 0)];
       }
       case DPY: {
         // direct page indexed on y
-        let adr = this.mem.read(this.br[PC]++);
+        let adr = this.mem.read(this.pc++);
         return [((adr + this.r[Y]) & 0xff) | (this.p ? 0x100 : 0), 0];
       }
       case ABB: {
         // absolute, with bit index
-        let adr = this.mem.read(this.br[PC]++);
-        adr |= this.mem.read(this.br[PC]++) << 8;
+        let adr = this.mem.read(this.pc++);
+        adr |= this.mem.read(this.pc++) << 8;
         return [adr & 0x1fff, adr >> 13];
       }
       case DXR: {
         // direct page indexed on x, relative
-        let adr = this.mem.read(this.br[PC]++);
-        let rel = this.getSigned(this.mem.read(this.br[PC]++));
+        let adr = this.mem.read(this.pc++);
+        let rel = this.getSigned(this.mem.read(this.pc++));
         return [((adr + this.r[X]) & 0xff) | (this.p ? 0x100 : 0), rel];
       }
       case IAX: {
         // indirect absolute indexed
-        let adr = this.mem.read(this.br[PC]++);
-        adr |= this.mem.read(this.br[PC]++) << 8;
+        let adr = this.mem.read(this.pc++);
+        adr |= this.mem.read(this.pc++) << 8;
         let radr = this.mem.read((adr + this.r[X]) & 0xffff);
         radr |= this.mem.read((adr + this.r[X] + 1) & 0xffff) << 8;
         return [radr, 0];
@@ -371,10 +387,10 @@ function Spc(mem) {
   }
 
   this.tcall = function(adr, adrh, instr) {
-    this.push(this.br[PC] >> 8);
-    this.push(this.br[PC] & 0xff);
+    this.push(this.pc >> 8);
+    this.push(this.pc & 0xff);
     let padr = 0xffc0 + ((15 - (instr >> 4)) << 1);
-    this.br[PC] = this.mem.read(padr) | (this.mem.read(padr + 1) << 8);
+    this.pc = this.mem.read(padr) | (this.mem.read(padr + 1) << 8);
   }
 
   this.set1 = function(adr, adrh, instr) {
@@ -885,43 +901,43 @@ function Spc(mem) {
   }
 
   this.brk = function(adr, adrh, instr) {
-    this.push(this.br[PC] >> 8);
-    this.push(this.br[PC] & 0xff);
+    this.push(this.pc >> 8);
+    this.push(this.pc & 0xff);
     this.push(this.getP());
     this.i = false;
     this.b = true;
-    this.br[PC] = this.mem.read(0xffde) | (this.mem.read(0xffdf) << 8);
+    this.pc = this.mem.read(0xffde) | (this.mem.read(0xffdf) << 8);
   }
 
   this.jmp = function(adr, adrh, instr) {
-    this.br[PC] = adr;
+    this.pc = adr;
   }
 
   this.bra = function(adr, adrh, instr) {
-    this.br[PC] += adr;
+    this.pc += adr;
   }
 
   this.call = function(adr, adrh, instr) {
-    this.push(this.br[PC] >> 8);
-    this.push(this.br[PC] & 0xff);
-    this.br[PC] = adr;
+    this.push(this.pc >> 8);
+    this.push(this.pc & 0xff);
+    this.pc = adr;
   }
 
   this.pcall = function(adr, adrh, instr) {
-    this.push(this.br[PC] >> 8);
-    this.push(this.br[PC] & 0xff);
-    this.br[PC] = 0xff00 + (adr & 0xff);
+    this.push(this.pc >> 8);
+    this.push(this.pc & 0xff);
+    this.pc = 0xff00 + (adr & 0xff);
   }
 
   this.ret = function(adr, adrh, instr) {
-    this.br[PC] = this.pop();
-    this.br[PC] |= this.pop() << 8;
+    this.pc = this.pop();
+    this.pc |= this.pop() << 8;
   }
 
   this.reti = function(adr, adrh, instr) {
     this.setP(this.pop());
-    this.br[PC] = this.pop();
-    this.br[PC] |= this.pop() << 8;
+    this.pc = this.pop();
+    this.pc |= this.pop() << 8;
   }
 
   this.xcn = function(adr, adrh, instr) {
@@ -931,11 +947,11 @@ function Spc(mem) {
 
   this.sleep = function(adr, adrh, instr) {
     // interrupts are not supported on the spc in the snes, so act like stop
-    this.br[PC]--;
+    this.pc--;
   }
 
   this.stop = function(adr, adrh, instr) {
-    this.br[PC]--;
+    this.pc--;
   }
 
   this.mul = function(adr, adrh, instr) {

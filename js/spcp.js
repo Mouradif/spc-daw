@@ -59,7 +59,7 @@ function SpcPlayer() {
     }
 
     // first 0x24 bytes: header and stuff
-    this.apu.spc.br[0] = file[0x25] | (file[0x26] << 8);
+    this.apu.spc.pc = file[0x25] | (file[0x26] << 8);
     this.apu.spc.r[0] = file[0x27];
     this.apu.spc.r[1] = file[0x28];
     this.apu.spc.r[2] = file[0x29];
