@@ -6,7 +6,7 @@ const c = el("output");
 c.width = 512;
 c.height = 480;
 let ctx = c.getContext("2d");
-drawVisual(true);
+drawVisual();
 
 let loopId = 0;
 let loaded = false;
@@ -150,58 +150,72 @@ function drawVisual() {
     ctx.fillRect(10 + i * 57, 480 - scale, 10, scale);
 
     // Piano Roll
-
     // const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-    const blackKeys = [0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0];
+    const blackKeys = [false, true, false, true, false, false, true, false, true, false, true, false];
 
-    // White keys
-    let keyIndex = 0;
-    for (let j = 0; j < 82; j++) {
-      ctx.fillStyle = "#000000";
-      ctx.fillRect(10 + i * 57 + 30, 480 - (keyIndex * 10) - 10, 20, 10);
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(10 + i * 57 + 31, 480 - (keyIndex * 10) - 9, 18, 8);
-      if (blackKeys[j % 12] === 0) {
-        keyIndex++;
-      }
-    }
-
-    // Black keys
-    keyIndex = 0;
-    for (let j = 0; j < 82; j++) {
-      if (blackKeys[j % 12] === 1) {
-        ctx.fillStyle = "#000000";
-        ctx.fillRect(10 + i * 57 + 30, 480 - (keyIndex * 10) - 3, 10, 6);
-      }
-      if (blackKeys[j % 12] === 0) {
-        keyIndex++;
-      }
-    }
+    const xOffset = 10 + i * 57 + 30;
     let pitch = player.apu.dsp.pitch[i];
     if(player.apu.dsp.pitchMod[i]) {
       let factor = (this.sampleOut[i - 1] >> 4) + 0x400;
       pitch = (pitch * factor) >> 10;
       pitch = Math.min(pitch, 0x3fff);
     }
-    const note = Math.round(12 * Math.log2( pitch/ 220 ) + 9);
-
+    const note = Math.round(12 * Math.log2(pitch / 440) + 9);
+    const noteIndex = note % 12;
+    if (i === 0 && window.lastNote !== note) {
+      window.lastNote = note;
+      console.log(note);
+    }
     // Played key
     ctx.fillStyle = "#7f7fff";
     // const letter = notes[note % 12];
-    const octave = Math.floor(note / 12) * 70;
-    keyIndex = ((index) => {
+    const octave = Math.floor(note / 12);
+    const playedKeyIndex = ((index) => {
       let key = 0;
       for (let i = 0; i < index; i++) {
         if (!blackKeys[i]) {
           key++;
         }
       }
-      return key;
-    })(note % 12);
-    const width = blackKeys[note % 12] ? 10 : 20;
-    const yOffset = blackKeys[note % 12] ? 3 : 10;
-    const height = blackKeys[note % 12] ? 6 : 10;
-    ctx.fillRect(10 + i * 57 + 30, 480 - octave - (keyIndex * 10) - yOffset, width, height);
+      return key + octave * 7;
+    })(noteIndex);
+    const width = blackKeys[noteIndex] ? 10 : 20;
+    const yOffset = blackKeys[noteIndex] ? 3 : 10;
+    const height = blackKeys[noteIndex] ? 6 : 10;
+    ctx.fillRect(xOffset, 480 - (playedKeyIndex * 10) - yOffset, width, height);
+
+    // White keys
+    let keyIndex = 0;
+    for (let j = 0; j < 82; j++) {
+      if (blackKeys[j % 12]) continue;
+      if (j === note) {
+        keyIndex++;
+        continue;
+      }
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(xOffset, 480 - (keyIndex * 10) - 10, 20, 10);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(xOffset + 1, 480 - (keyIndex * 10) - 9, 18, 8);
+      keyIndex++;
+    }
+
+    // Black keys
+    keyIndex = 0;
+    for (let j = 0; j < 82; j++) {
+      if (blackKeys[j % 12]) {
+        if (j === note) {
+          continue;
+        }
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(xOffset, 480 - (keyIndex * 10) - 3, 10, 6);
+        j++;
+      }
+      keyIndex++;
+    }
+    if (blackKeys[noteIndex]) {
+      ctx.fillStyle = "#7f7fff";
+      ctx.fillRect(xOffset, 480 - (playedKeyIndex * 10) - yOffset, width, height);
+    }
   }
 }
 

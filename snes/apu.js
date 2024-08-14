@@ -1,8 +1,5 @@
 
-function Apu(snes) {
-
-  this.snes = snes;
-
+function Apu() {
   this.spc = new Spc(this);
   this.dsp = new Dsp(this);
 

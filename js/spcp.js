@@ -1,7 +1,6 @@
 
 function SpcPlayer() {
-
-  this.apu = new Apu(this);
+  this.apu = new Apu();
 
   this.loadedFile = undefined;
 
@@ -23,10 +22,6 @@ function SpcPlayer() {
     }
   }
   this.reset();
-
-  this.cycle = function() {
-    this.apu.cycle();
-  }
 
   this.runFrame = function() {
     // 17088 cycles per frame (32040 * 32 / 60)
